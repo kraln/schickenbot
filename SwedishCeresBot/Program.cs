@@ -416,7 +416,6 @@ namespace SwedishCeresBot
         {
 
             long chan_id = get_channel_id(c.Channel);
-            cl.SendWhisper(c.Username, "Here's the leaderboard: ");
             using (System.Data.SQLite.SQLiteCommand com = new System.Data.SQLite.SQLiteCommand(con))
             {
                 con.Open();
@@ -429,11 +428,12 @@ namespace SwedishCeresBot
                 com.Parameters.AddWithValue("@chanid", chan_id);
  
                 long pos = 1;
+                string list = "Leaderboard for #" + c.Channel + ": ";
                 using (System.Data.SQLite.SQLiteDataReader r = com.ExecuteReader())
                 {
                     while (r.Read())
                     {
-                        cl.SendWhisper(c.Username, pos + ": " + ((string)r["nickname"]).Trim() + " - " + r["points"] + "pts");
+                        list = list + " (" + pos + ") " + ((string)r["nickname"]).Trim() + " - " + r["points"] + ", ";
                         pos++;
                     }
                 }
@@ -466,7 +466,7 @@ namespace SwedishCeresBot
                
                 con.Close();
 
-                cl.SendWhisper(c.Username, "In #" + c.Channel.Trim() + " you are ranked #" + (rank!=0?rank:total) + "/" + total);
+                cl.SendWhisper(c.Username, list + " you are ranked " + (rank!=0?rank:total) + "/" + total);
             }
             verb("Leaderboard req from " +  c.Username);
         }
