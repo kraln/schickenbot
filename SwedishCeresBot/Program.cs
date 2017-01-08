@@ -75,9 +75,10 @@ namespace SwedishCeresBot
                     com.CommandText = @"CREATE TABLE IF NOT EXISTS [players] (
                                             [ID] INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
                                             [chan_id] INTEGER NOT NULL,
-                                            [nickname] TEXT UNIQUE NOT NULL,
+                                            [nickname] TEXT NOT NULL,
                                             [points] INTEGER DEFAULT 0,
-                                            FOREIGN KEY (chan_id) REFERENCES channels(ID)
+                                            FOREIGN KEY (chan_id) REFERENCES channels(ID),
+                                            UNIQUE (chan_id, nickname) ON CONFLICT REPLACE
                                         )";
                     com.ExecuteNonQuery();
                     com.CommandText = @"CREATE TABLE IF NOT EXISTS [guesses] (
