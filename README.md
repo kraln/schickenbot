@@ -19,6 +19,7 @@ The bot keeps all the info in a sqlite database which can later be used for gene
 * !points (response is whispered)
 * !leaderboard (response is whispered)
 * !stats (response is whispered)
-
+* !about (response is whispered)
+* !help
 
 License: BSD 2-clause

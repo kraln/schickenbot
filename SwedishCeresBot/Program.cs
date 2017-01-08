@@ -1,4 +1,4 @@
- using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,9 +13,9 @@ namespace SwedishCeresBot
 {
     class Program
     {
-        public static string user = "";
+        public static string user = "shickenbot";
         public static string oauth = "";
-        public static string channel = "";
+        public static string channel = "kottpower";
 
         public const string database_fn = "History.sqlite";
         public const string config_fn = "bot.txt";
@@ -145,6 +145,22 @@ namespace SwedishCeresBot
             System.Console.WriteLine("Connected! Channel: #" + channel);
         }
 
+        private static void about(ChatMessage c)
+        {
+            verb("About req from " + c.Username);
+            cl.SendWhisper(c.Username, "I was programmed by @kraln. You can find more information at my github page: https://github.com/kraln/schickenbot. Want me for your channel? Just ask...");
+        }
+
+        private static void help(ChatMessage c)
+        {
+            verb("Help req from " + c.Username);
+            cl.SendMessage("I respond to the following commands: !points, !leaderboard, !stats, !help, !about, !guess xxxx");
+            if (c.IsBroadcaster || c.IsModerator)
+            {
+                cl.SendMessage("Mods can also !start, !reset, !end xxxx");
+            }
+        }
+
         private static void stats(ChatMessage c)
         {
             verb("Stats req from " +  c.Username);
@@ -183,7 +199,17 @@ namespace SwedishCeresBot
                 com.CommandType = System.Data.CommandType.Text;
                 com.Parameters.AddWithValue("@nickname", c.Username);
                 com.Parameters.AddWithValue("@chanid", chan_id);
-                long userId = (long)com.ExecuteScalar();
+                Object res = com.ExecuteScalar();
+
+                long userId = -1;
+                if (res != null)
+                {
+                    userId = (long)com.ExecuteScalar();
+                } else
+                {
+                    verb("Problem with guess from " + c.Username + ". Couldn't find id?");
+                    return;
+                }
 
                 // This is a goofy sqlite upsert
                 com.CommandText = @"UPDATE OR IGNORE guesses 
@@ -420,16 +446,22 @@ namespace SwedishCeresBot
                     rank = (long)res;
                 }
 
+                com.CommandText = @"SELECT count(*) from players where chan_id = @chanid" 
+                com.CommandType = System.Data.CommandType.Text;
+                com.Parameters.AddWithValue("@chanid", chan_id);
+                res = com.ExecuteScalar();
+                long total = 0;
+                if (res != null)
+                {
+                    total = (long)res;
+                }
+               
                 con.Close();
 
-                // note I close the connection first...
-                long[] statistics = stats();
-                cl.SendWhisper(c.Username, "In #" + c.Channel.Trim() + " You are ranked #" + rank + " from " + statistics[0]);
+                cl.SendWhisper(c.Username, "In #" + c.Channel.Trim() + " You are ranked #" + rank + " from " + total);
             }
             verb("Leaderboard req from " +  c.Username);
         }
-
-
 
         private static void player_points(ChatMessage c)
         {
@@ -496,6 +528,8 @@ namespace SwedishCeresBot
 
         private static void globalChatMessageReceived(object sender, OnMessageReceivedArgs e)
         {
+            /* TODO: command registration? modules? etc? */
+
             // make sure there is a channel entry for this place
             if (e.ChatMessage.Message.StartsWith("!"))
             {
@@ -547,6 +581,18 @@ namespace SwedishCeresBot
             if(e.ChatMessage.Message.StartsWith("!stats"))
             {
                 stats(e.ChatMessage);
+            }
+
+            // help (in-chan response)
+            if(e.ChatMessage.Message.StartsWith("!help"))
+            {
+                help(e.ChatMessage);
+            }
+            
+            // about (whisper resp)
+            if(e.ChatMessage.Message.StartsWith("!about"))
+            {
+                about(e.ChatMessage);
             }
         }
     }

@@ -1,0 +1,4 @@
+Bot configuration. This line is a comment, then the username, then the oauth token, then the channel to join. TODO: multiple channels?
+shickenbot
+<put oauth here>
+kottpower
