@@ -24,6 +24,7 @@ namespace SwedishCeresBot
         private static long round_id = 0;
         private static long round_started_time = 0;
         private static long round_awarded = 0; // how many awards this round
+        private static bool round_more_guesses = true;
         public static TwitchClient cl; 
 
         public static System.Data.SQLite.SQLiteConnection con;
@@ -176,9 +177,15 @@ namespace SwedishCeresBot
             if (Math.Abs(DateTime.Now.ToFileTimeUtc() - round_started_time) > 45 * 10000000L)
             {
                 cl.SendWhisper(c.Username, "Sorry, it's been more than 45 seconds. Try next round!");
+                if(round_more_guesses)
+                {
+                    round_more_guesses = false;
+                    cl.SendMessage("Guessing is now over, please wait until the next round.");
+                }
                 return;
             }
 
+            round_more_guesses = true;
             string guess = new string(c.Message.Where(Char.IsDigit).ToArray()); // linq magic to extract any leading/trailing chars
             string user = c.Username;
             long chan_id = get_channel_id(c.Channel);
@@ -194,6 +201,10 @@ namespace SwedishCeresBot
                 com.Parameters.AddWithValue("@chanid", chan_id);
                 com.ExecuteNonQuery();
 
+                con.Close();
+
+                con.Open();
+
                 // get the userid for this nickname
                 com.CommandText = "SELECT id FROM players WHERE nickname = @nickname AND chan_id = @chanid";
                 com.CommandType = System.Data.CommandType.Text;
@@ -205,9 +216,11 @@ namespace SwedishCeresBot
                 if (res != null)
                 {
                     userId = (long)com.ExecuteScalar();
-                } else
+                }
+                else
                 {
                     verb("Problem with guess from " + c.Username + ". Couldn't find id?");
+                    con.Close();
                     return;
                 }
 
