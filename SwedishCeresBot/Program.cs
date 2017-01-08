@@ -439,16 +439,10 @@ namespace SwedishCeresBot
                 }
 
                 // then tell the player their position
-                com.CommandText = @"SELECT rank
-                                    FROM ( SELECT 
-                                            _ROWID_ as rank,
-                                            points,
-                                            nickname
-                                            FROM players 
-                                            WHERE chan_id = @chanid
-                                            ORDER BY points DESC
-                                    ) rankings
-                                    WHERE rankings.nickname = @nickname";
+                com.CommandText = @"SELECT count(*) AS rank 
+                                    FROM players 
+                                    WHERE chan_id = @chanid AND points > (SELECT points from players where nickname = @nickname)
+                                    ORDER BY points DESC";
 
                 com.CommandType = System.Data.CommandType.Text;
                 com.Parameters.AddWithValue("@nickname", c.Username);
@@ -472,7 +466,7 @@ namespace SwedishCeresBot
                
                 con.Close();
 
-                cl.SendWhisper(c.Username, "In #" + c.Channel.Trim() + " You are ranked #" + rank + " from " + total);
+                cl.SendWhisper(c.Username, "In #" + c.Channel.Trim() + " you are ranked #" + (rank!=0?rank:total) + "/" + total);
             }
             verb("Leaderboard req from " +  c.Username);
         }
