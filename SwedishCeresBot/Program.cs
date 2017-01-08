@@ -446,7 +446,7 @@ namespace SwedishCeresBot
                     rank = (long)res;
                 }
 
-                com.CommandText = @"SELECT count(*) from players where chan_id = @chanid" 
+                com.CommandText = @"SELECT count(*) from players where chan_id = @chanid"; 
                 com.CommandType = System.Data.CommandType.Text;
                 com.Parameters.AddWithValue("@chanid", chan_id);
                 res = com.ExecuteScalar();

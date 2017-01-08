@@ -6,11 +6,11 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("SwedishCeresBot")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription("Twitch bot that allows players to guess how long a runner with take escaping Ceres station in Super Metroid")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("@kraln")]
 [assembly: AssemblyProduct("SwedishCeresBot")]
-[assembly: AssemblyCopyright("Copyright ©  2017")]
+[assembly: AssemblyCopyright("Copyright ©2017 Jeff Katz")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
