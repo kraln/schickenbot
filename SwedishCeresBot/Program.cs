@@ -5,9 +5,11 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using TwitchLib;
-using TwitchLib.Events.Client;
-using TwitchLib.Models.Client;
+using TwitchLib.Client;
+using TwitchLib.Client.Enums;
+using TwitchLib.Client.Events;
+using TwitchLib.Client.Extensions;
+using TwitchLib.Client.Models;
 
 namespace SwedishCeresBot
 {
@@ -15,7 +17,7 @@ namespace SwedishCeresBot
     {
         public static string user = "shickenbot";
         public static string oauth = "";
-        public static string channel = "kottpower";
+        public static string channel = "";
 
         public const string database_fn = "History.sqlite";
         public const string config_fn = "bot.txt";
@@ -68,7 +70,7 @@ namespace SwedishCeresBot
                                             [ID] INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
                                             [chan_id] INTEGER NOT NULL,
                                             [began] TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                            [time] INTEGER DEFAULT 0,
+                                            [guess] TEXT DEFAULT NULL,
                                             FOREIGN KEY (chan_id) REFERENCES channels(ID)
                                         )";
                     com.ExecuteNonQuery();
@@ -87,7 +89,7 @@ namespace SwedishCeresBot
                                             [user_id] TEXT NOT NULL,
                                             [chan_id] INTEGER NOT NULL,
                                             [t] TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                            [time] INTEGER NOT NULL,
+                                            [guess] TEXT NOT NULL,
                                             FOREIGN KEY (user_id) REFERENCES players(ID),
                                             FOREIGN KEY (round_id) REFERENCES rounds(ID),
                                             FOREIGN KEY (chan_id) REFERENCES channels(ID)
@@ -133,14 +135,16 @@ namespace SwedishCeresBot
         private static void MainThread()
         {
             ConnectionCredentials credentials = new ConnectionCredentials(user, oauth);
-            cl = new TwitchClient(credentials, channel, '!', '!', true, false);
-            cl.SetLoggingStatus(false);
-            cl.ChatThrottler = new TwitchLib.Services.MessageThrottler(5, TimeSpan.FromSeconds(60));
+            cl = new TwitchClient();
+            
+            cl.Initialize(credentials, channel);
             cl.OnMessageReceived += new EventHandler<OnMessageReceivedArgs>(globalChatMessageReceived);
             cl.OnConnected += new EventHandler<OnConnectedArgs>(onConnected);
             cl.Connect();
             System.Console.WriteLine("Connecting...");
         }
+
+        private static JoinedChannel myjc;
 
         private static void onConnected(object sender, OnConnectedArgs e)
         {
@@ -156,10 +160,10 @@ namespace SwedishCeresBot
         private static void help(ChatMessage c)
         {
             verb("Help req from " + c.Username);
-            cl.SendMessage("I respond to the following commands: !points, !leaderboard, !stats, !help, !about, !guess xxxx");
+            cl.SendMessage(channel, "I respond to the following commands: !points, !leaderboard, !stats, !help, !about, !guess xxxx");
             if (c.IsBroadcaster || c.IsModerator)
             {
-                cl.SendMessage("Mods can also !start, !reset, !end xxxx");
+                cl.SendMessage(channel, "Mods can also !start, !reset, !end xxxx");
             }
         }
 
@@ -174,20 +178,16 @@ namespace SwedishCeresBot
         {
             verb("guess from " + c.Username);
 
-            // check to make sure the game hasn't been running too long
-            if (Math.Abs(DateTime.Now.ToFileTimeUtc() - round_started_time) > 45 * 10000000L)
-            {
-                cl.SendWhisper(c.Username, "Sorry, it's been more than 45 seconds. Try next round!");
-                if(round_more_guesses)
-                {
-                    round_more_guesses = false;
-                    cl.SendMessage("Guessing is now over, please wait until the next round.");
-                }
-                return;
-            }
-
+           
             round_more_guesses = true;
-            string guess = new string(c.Message.Where(Char.IsDigit).ToArray()); // linq magic to extract any leading/trailing chars
+            string guess = "";
+            try
+            {
+                guess = new string(c.Message.Substring(c.Message.IndexOf(" ") + 1).Where(Char.IsLetterOrDigit).ToArray()); // linq magic to extract any leading/trailing chars
+            }
+            catch (Exception e) { }
+
+            guess = Soundex(guess);
             string user = c.Username;
             long chan_id = get_channel_id(c.Channel);
 
@@ -227,7 +227,7 @@ namespace SwedishCeresBot
 
                 // This is a goofy sqlite upsert
                 com.CommandText = @"UPDATE OR IGNORE guesses 
-                                    SET time=@guess, t=CURRENT_TIMESTAMP 
+                                    SET guess=@guess, t=CURRENT_TIMESTAMP 
                                     WHERE user_id=@user_id AND round_id=@round_id AND chan_id=@chanid";
                 com.CommandType = System.Data.CommandType.Text;
                 com.Parameters.AddWithValue("@guess", guess);
@@ -236,7 +236,7 @@ namespace SwedishCeresBot
                 com.Parameters.AddWithValue("@chanid", chan_id);
                 com.ExecuteNonQuery();
 
-                com.CommandText = "INSERT OR IGNORE INTO guesses (time, user_id, round_id, chan_id) VALUES (@guess, @user_id, @round_id, @chanid)";
+                com.CommandText = "INSERT OR IGNORE INTO guesses (guess, user_id, round_id, chan_id) VALUES (@guess, @user_id, @round_id, @chanid)";
                 com.CommandType = System.Data.CommandType.Text;
                 com.Parameters.AddWithValue("@guess", guess);
                 com.Parameters.AddWithValue("@user_id", userId);
@@ -248,7 +248,7 @@ namespace SwedishCeresBot
             }
         }
 
-        private static void award_points(string user_id, long guess, string endtime, long place)
+        private static void award_points(string user_id, string guess, string actual_guess, long place)
         {
             long new_points = 0;
             round_awarded++;
@@ -293,84 +293,63 @@ namespace SwedishCeresBot
             switch (place)
             {
                 case 0:
-                    cl.SendMessage(player_name + " guessed exactly, and wins " + new_points + " points!");
+                    cl.SendMessage(channel, player_name + " guessed first, and wins " + new_points + " points!");
                     break;
                 case 1:
-                    cl.SendMessage(player_name + " was the closest, and wins " + new_points + " points!");
+                    cl.SendMessage(channel, player_name + " was the closest second, and wins " + new_points + " points!");
                     break;
                 case 2:
-                    cl.SendMessage(player_name + " came in second and earns " + new_points + " points.");
+                    cl.SendMessage(channel, player_name + " came in third and earns " + new_points + " points.");
                     break;
                 case 3:
-                    cl.SendMessage(player_name + " had the third best guess, earning " + new_points + " points.");
+                    cl.SendMessage(channel, player_name + " had the fourth best guess, earning " + new_points + " points.");
                     break;
             }
         }
 
         private static void round_end(ChatMessage c)
         {
-            string endtime = new string(c.Message.Where(Char.IsDigit).ToArray()); // linq magic to extract any leading/trailing chars
-
-            if(endtime.Length != 4)
+            string guess = "";
+            try
             {
-                verb("Invalid endtime (" + endtime + ")");
-                return;
+                guess = new string(c.Message.Substring(c.Message.IndexOf(" ") + 1).Where(Char.IsLetterOrDigit).ToArray()); // linq magic to extract any leading/trailing chars
             }
+            catch (Exception e)
+            { }
 
+            guess = Soundex(guess);
             long chan_id = get_channel_id(c.Channel);
 
-            verb("round ended by " + c.Username + ", with time of " + endtime); 
+            verb("round ended by " + c.Username + ", with enemy of " + guess); 
             using (System.Data.SQLite.SQLiteCommand com = new System.Data.SQLite.SQLiteCommand(con))
             {
                 con.Open();
-
-               // first, all the perfect guesses
-                com.CommandText = @"SELECT user_id, time 
+                com.CommandText = @"SELECT user_id, guess
                                     FROM guesses
                                     WHERE round_id = @round_id
                                     AND chan_id = @chanid
-                                    AND time = @end_time";
+                                    AND guess LIKE @guess
+                                    ORDER BY t ASC LIMIT 4";
                 com.CommandType = System.Data.CommandType.Text;
                 com.Parameters.AddWithValue("@round_id", round_id);
                 com.Parameters.AddWithValue("@chanid", chan_id);
-                com.Parameters.AddWithValue("@end_time", endtime);
+                com.Parameters.AddWithValue("@guess", guess);
 
+                long i = 0;
                 using (System.Data.SQLite.SQLiteDataReader r = com.ExecuteReader())
                 {
-                    while (r.Read())
+                    while (r.Read() && i < 4)
                     {
-                        award_points((string)r["user_id"], (long)r["time"], endtime, 0);
-                    }
-                }
-
-                // then, all the users who weren't exactly right
-                com.CommandText = @"SELECT user_id, time 
-                                    FROM guesses
-                                    WHERE round_id = @round_id
-                                    AND time != @end_time
-                                    AND chan_id = @chanid
-                                    ORDER BY ABS(time - @end_time) ASC LIMIT 3";
-                com.CommandType = System.Data.CommandType.Text;
-                com.Parameters.AddWithValue("@round_id", round_id);
-                com.Parameters.AddWithValue("@chanid", chan_id);
-                com.Parameters.AddWithValue("@end_time", endtime);
-
-                using (System.Data.SQLite.SQLiteDataReader r = com.ExecuteReader())
-                {
-                    long place = 1;
-                    while (r.Read())
-                    {
-                        award_points((string)r["user_id"], (long)r["time"], endtime, place);
-                        place++;
+                        award_points((string)r["user_id"], (string)r["guess"], guess, i++);
                     }
                 }
 
                 // then update the round with the final time, for stats
-                com.CommandText = @"UPDATE rounds SET time = @end_time WHERE id = @id AND chan_id = @chanid";
+                com.CommandText = @"UPDATE rounds SET guess = @guess WHERE id = @id AND chan_id = @chanid";
                 com.CommandType = System.Data.CommandType.Text;
                 com.Parameters.AddWithValue("@id", round_id);
                 com.Parameters.AddWithValue("@chanid", chan_id);
-                com.Parameters.AddWithValue("@end_time", endtime);
+                com.Parameters.AddWithValue("@guess", guess);
                 com.ExecuteNonQuery();
 
                 con.Close();
@@ -378,7 +357,7 @@ namespace SwedishCeresBot
 
             if(round_awarded == 0)
             {
-                cl.SendMessage("Round #"+ round_id +" ended without anyone playing :(");
+                cl.SendMessage(channel, "Round #"+ round_id +" ended without anyone winning :(");
             }
             
             // end the round
@@ -388,10 +367,55 @@ namespace SwedishCeresBot
         private static void round_reset()
         {
             round_started = false;
-            cl.SendMessage("Round #" + round_id + " cancelled.");
+            cl.SendMessage(channel, "Round #" + round_id + " cancelled.");
             System.Console.WriteLine("Round #" + round_id + " cancelled.");
         }
+        public static string Soundex(string data)
+        {
+            StringBuilder result = new StringBuilder();
 
+            if (data != null && data.Length > 0)
+            {
+                string previousCode = "", currentCode = "", currentLetter = "";
+
+                result.Append(data.Substring(0, 1));
+
+                for (int i = 1; i < data.Length; i++)
+                {
+                    currentLetter = data.Substring(i, 1).ToLower();
+                    currentCode = "";
+
+                    if ("bfpv".IndexOf(currentLetter) > -1)
+                        currentCode = "1";
+
+                    else if ("cgjkqsxz".IndexOf(currentLetter) > -1)
+                        currentCode = "2";
+
+                    else if ("dt".IndexOf(currentLetter) > -1)
+                        currentCode = "3";
+
+                    else if (currentLetter == "l")
+                        currentCode = "4";
+
+                    else if ("mn".IndexOf(currentLetter) > -1)
+                        currentCode = "5";
+
+                    else if (currentLetter == "r")
+                        currentCode = "6";
+
+                    if (currentCode != previousCode)
+                        result.Append(currentCode);
+
+                    if (result.Length == 4) break;
+                        previousCode = currentCode;
+
+                }
+            }
+            if (result.Length < 4)
+                result.Append(new String('0', 4 - result.Length));
+
+            return result.ToString().ToUpper();
+        }
         private static void round_begin(ChatMessage c)
         {
             long chan_id = get_channel_id(c.Channel);
@@ -408,7 +432,7 @@ namespace SwedishCeresBot
             round_started = true;
             round_awarded = 0;
             round_started_time = DateTime.Now.ToFileTimeUtc();
-            cl.SendMessage("Round #" + round_id + " started. Type !guess xxxx to register your Ceres time. You have 45 seconds to place your guess.");
+            cl.SendMessage(channel, "Round #" + round_id + " started. Type !guess xxxx to register your guess at what enemy will kill Barb.");
             System.Console.WriteLine("Round #" + round_id + " started.");
         }
 
